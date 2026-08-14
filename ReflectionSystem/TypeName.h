@@ -55,6 +55,16 @@ private:
 
     size_t end = sig.rfind(suffix);
 
+    // Trim whitespaces from beggining and end of the type name
+    while (begin < end && sig[begin] == ' ')
+    {
+      begin++;
+    }
+    while (end > begin && sig[end-1] == ' ')
+    {
+      end--;
+    }
+
     return { begin, end };
   }
 

@@ -13,6 +13,7 @@
 struct TypeDesc_Base
 {
   const char* name;
+  size_t size;
 };
 
 struct StructMember
@@ -23,8 +24,7 @@ struct StructMember
 };
 
 struct TypeDesc_Struct : public TypeDesc_Base
-{
-  size_t size;
+{  
   const StructMember* members;
   const unsigned int memberCount;
   const TypeDesc_Struct* parentTypes;
@@ -33,12 +33,13 @@ struct TypeDesc_Struct : public TypeDesc_Base
 
 struct TypeDesc_Primitive : public TypeDesc_Base
 {
-  size_t size;
 };
 
 struct TypeDesc_Collection : public TypeDesc_Base
 {
   const TypeDesc_Base* elementType;
+
+  bool isResizable;
 
   void (*resize)(void* collection, size_t newSize);
   size_t(*getSize)(const void* collection);
@@ -50,13 +51,16 @@ struct TypeDesc_Collection : public TypeDesc_Base
 
 template<typename T>
 concept CollectionReflectionType =
-  requires {
-    typename CollectionTraits<std::remove_cvref_t<T>>::Element;
-    { CollectionTraits<std::remove_cvref_t<T>>::GetSize(std::declval<const std::remove_cvref_t<T>*>()) } -> std::convertible_to<size_t>;
-    { CollectionTraits<std::remove_cvref_t<T>>::Resize(std::declval<std::remove_cvref_t<T>*>(), size_t{}) };
-    { CollectionTraits<std::remove_cvref_t<T>>::GetElement(std::declval<const std::remove_cvref_t<T>*>(), int{}) } -> std::convertible_to<typename CollectionTraits<T>::ElementConstPtr>;
-    { CollectionTraits<std::remove_cvref_t<T>>::SetElement(std::declval<std::remove_cvref_t<T>*>(), int{}, std::declval<typename CollectionTraits<T>::ElementConstPtr>()) };
-  };
+  requires
+{
+  typename CollectionElement<T>::type;
+}
+&&
+  requires(const T& collection, T& mutableCollection, size_t index)
+{
+  collection[index];
+  mutableCollection[index];
+};
 
 template<typename T>
 concept PrimitiveReflectionType =
@@ -106,14 +110,14 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
 
 // Reflection types declaration macros
 
-#define DECLARE_STRUCT_TYPE(T) \
-    template<> constexpr const TypeDesc_Struct* GetTypeDesc<T>();
+#define DECLARE_STRUCT_TYPE(...) \
+    template<> constexpr const TypeDesc_Struct* GetTypeDesc<__VA_ARGS__>();
 
-#define DECLARE_PRIMITIVE_TYPE(T) \
-    template<> constexpr const TypeDesc_Primitive* GetTypeDesc<T>();
+#define DECLARE_PRIMITIVE_TYPE(...) \
+    template<> constexpr const TypeDesc_Primitive* GetTypeDesc<__VA_ARGS__>();
 
-#define DECLARE_COLLECTION_TYPE(T) \
-    template<> constexpr const TypeDesc_Collection* GetTypeDesc<T>();    
+#define DECLARE_COLLECTION_TYPE(...) \
+    template<> constexpr const TypeDesc_Collection* GetTypeDesc<__VA_ARGS__>();    
 
 // Struct reflection implementation macros
 
@@ -124,9 +128,9 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
     {#member, offsetof(__Type, member), GetTypeDesc<decltype(__Type::member)>()},
 
 #define __IMPLEMENT_STRUCT_TYPE_IMPL(T, ID, BASES, MEMBERS) \
-    static_assert(StructReflectionType<T>, "Type must be a struct/class type.");  \
+    static_assert(StructReflectionType<REMOVE_PARENS(T)>, "Type must be a struct/class type.");  \
     namespace CAT(Refl_NS_, ID) { \
-      using __Type = T; \
+      using __Type = REMOVE_PARENS(T); \
       static constexpr const TypeDesc_Struct* g_bases[] = {  \
           FOR_EACH(IMPLEMENT_STRUCT_BASE, REMOVE_PARENS(BASES)) \
           nullptr \
@@ -136,8 +140,8 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
       };  \
       __declspec(allocate("reflection$b")) \
       constexpr TypeDesc_Struct g_type = { \
-          GetTypeName<T>(),  \
-          sizeof(T),  \
+          GetTypeName<REMOVE_PARENS(T)>(),  \
+          sizeof(__Type),  \
           g_members,  \
           static_cast<unsigned int>(sizeof(g_members) / sizeof(StructMember)), \
           g_bases[0],  \
@@ -145,7 +149,7 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
       };  \
     } \
     template<>  \
-    constexpr const TypeDesc_Struct* GetTypeDesc<T>() {  \
+    constexpr const TypeDesc_Struct* GetTypeDesc<REMOVE_PARENS(T)>() {  \
         return &CAT(Refl_NS_, ID)::g_type;  \
     }
 
@@ -172,27 +176,32 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
 // Collection reflection implementation macro
 
 #define _IMPLEMENT_COLLECTION_TYPE_IMPL(T, ID) \
-    static_assert(CollectionReflectionType<T>, "Type must be a collection type.");  \
-    __declspec(allocate("reflection$h"))  \
-    constexpr TypeDesc_Collection CAT(g_type_Coll_, ID) = {  \
-        GetTypeName<T>(),  \
-        GetTypeDesc<typename CollectionTraits<T>::Element>(),  \
-        [](void* obj, size_t size) -> void {  \
-          CollectionTraits<T>::Resize(static_cast<std::add_pointer_t<T>>(obj), size); \
-        },  \
-        [](const void* obj) -> size_t { \
-          return CollectionTraits<T>::GetSize(static_cast<std::add_pointer_t<std::add_const_t<T>>>(obj)); \
-        },  \
-        [](const void* obj, int index) -> const void* { \
-          return static_cast<const void*>(CollectionTraits<T>::GetElement(static_cast<std::add_pointer_t<std::add_const_t<T>>>(obj), index)); \
-        },  \
-        [](void* obj, int index, const void* elem) -> void { \
-          CollectionTraits<T>::SetElement(static_cast<std::add_pointer_t<T>>(obj), index, static_cast<CollectionTraits<T>::ElementConstPtr>(elem)); \
-        } \
-    };  \
+    static_assert(CollectionReflectionType<REMOVE_PARENS(T)>, "Type must be a collection type.");  \
+    namespace CAT(Refl_NS_, ID) { \
+      using __Type = REMOVE_PARENS(T); \
+      __declspec(allocate("reflection$h"))  \
+      constexpr TypeDesc_Collection g_type = {  \
+          GetTypeName<REMOVE_PARENS(T)>(),  \
+          sizeof(__Type),  \
+          GetTypeDesc<typename CollectionTraits<__Type>::Element>(),  \
+          CollectionTraits<__Type>::isResizable,  \
+          [](void* obj, size_t size) -> void {  \
+            CollectionTraits<__Type>::Resize(static_cast<std::add_pointer_t<__Type>>(obj), size); \
+          },  \
+          [](const void* obj) -> size_t { \
+            return CollectionTraits<__Type>::GetSize(static_cast<std::add_pointer_t<std::add_const_t<__Type>>>(obj)); \
+          },  \
+          [](const void* obj, int index) -> const void* { \
+            return static_cast<const void*>(CollectionTraits<__Type>::GetElement(static_cast<std::add_pointer_t<std::add_const_t<__Type>>>(obj), index)); \
+          },  \
+          [](void* obj, int index, const void* elem) -> void { \
+            CollectionTraits<__Type>::SetElement(static_cast<std::add_pointer_t<__Type>>(obj), index, static_cast<CollectionTraits<__Type>::ElementConstPtr>(elem)); \
+          } \
+      };  \
+    } \
     template<>  \
-    constexpr const TypeDesc_Collection* GetTypeDesc<T>() {  \
-        return &CAT(g_type_Coll_, ID);  \
+    constexpr const TypeDesc_Collection* GetTypeDesc<REMOVE_PARENS(T)>() {  \
+        return &CAT(Refl_NS_, ID)::g_type;  \
     }
 
 #define IMPLEMENT_COLLECTION_TYPE(T) \

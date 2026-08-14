@@ -23,11 +23,13 @@ namespace MyNamespace
   };
 }
 
-DECLARE_PRIMITIVE_TYPE(int)
+template<> constexpr const TypeDesc_Primitive* GetTypeDesc<int>();
 
 DECLARE_PRIMITIVE_TYPE(char)
 
 DECLARE_COLLECTION_TYPE(char[5])
+
+DECLARE_COLLECTION_TYPE(std::array<int, 10>)
 
 DECLARE_STRUCT_TYPE(MyBase)
 DECLARE_STRUCT_TYPE(MyStruct)
