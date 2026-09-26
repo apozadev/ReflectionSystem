@@ -84,7 +84,7 @@ concept ReflectionType = PrimitiveReflectionType<T> || StructReflectionType<T> |
 template<class>
 inline constexpr bool always_false = false;
 
-// Fallback for types that don't have reflection data defined
+// Fallback for unregistered types
 
 template<typename T>
   requires PrimitiveReflectionType<T>
@@ -114,6 +114,9 @@ constexpr const TypeDesc_Collection* GetTypeDesc() { static_assert(always_false<
 #define IMPLEMENT_STRUCT_BASE(Base) \
     GetTypeDesc<Base>(),
 
+#define VALIDATE_STRUCT_BASE(Base)  \
+    static_assert(!std::is_same_v<Base, __Type> && !std::derived_from<Base, __Type>, #Base " is not a valid base type.");
+
 #define IMPLEMENT_STRUCT_MEMBER(member) \
     {#member, offsetof(__Type, member), GetTypeDesc<decltype(__Type::member)>()},
 
@@ -121,6 +124,7 @@ constexpr const TypeDesc_Collection* GetTypeDesc() { static_assert(always_false<
     static_assert(StructReflectionType<REMOVE_PARENS(T)>, "Type must be a struct/class type.");  \
     namespace CAT(Refl_NS_, ID) { \
       using __Type = REMOVE_PARENS(T); \
+      FOR_EACH(VALIDATE_STRUCT_BASE, REMOVE_PARENS(BASES))  \
       static constexpr const TypeDesc_Struct* g_bases[] = {  \
           FOR_EACH(IMPLEMENT_STRUCT_BASE, REMOVE_PARENS(BASES)) \
           nullptr \
