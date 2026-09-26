@@ -7,13 +7,14 @@
 #include <string_view>
 
 #include "CollectionTraits.h"
-#include "MacroUtils.h"
+#include "Traits.h"
 #include "TypeName.h"
+#include "MacroUtils.h"
 
 struct TypeDesc_Base
 {
   const char* name;
-  size_t size;
+  size_t size;  
 };
 
 struct StructMember
@@ -29,22 +30,26 @@ struct TypeDesc_Struct : public TypeDesc_Base
   const unsigned int memberCount;
   const TypeDesc_Struct* parentTypes;
   const unsigned int parentTypeCount;
+
+  void (*construct)(void*);
+  void (*destruct)(void*);
 };
 
 struct TypeDesc_Primitive : public TypeDesc_Base
 {
 };
 
-struct TypeDesc_Collection : public TypeDesc_Base
+struct alignas(8) TypeDesc_Collection : public TypeDesc_Base
 {
   const TypeDesc_Base* elementType;
-
-  bool isResizable;
 
   void (*resize)(void* collection, size_t newSize);
   size_t(*getSize)(const void* collection);
   const void* (*getElement)(const void* collection, int index);
   void (*setElement)(void* collection, int index, const void* element);
+
+  void (*construct)(void*);
+  void (*destruct)(void*);
 };
 
 // Reflection type concepts
@@ -64,14 +69,14 @@ concept CollectionReflectionType =
 
 template<typename T>
 concept PrimitiveReflectionType =
-std::is_arithmetic_v<std::remove_cvref_t<T>> ||
-std::is_enum_v<std::remove_cvref_t<T>>;
+  std::is_arithmetic_v<std::remove_cvref_t<T>> ||
+  std::is_enum_v<std::remove_cvref_t<T>>;
 
 template<typename T>
 concept StructReflectionType =
-std::is_class_v<std::remove_cvref_t<T>> &&
-!PrimitiveReflectionType<T> && 
-!CollectionReflectionType<T>;
+  std::is_class_v<std::remove_cvref_t<T>> &&
+  !PrimitiveReflectionType<T> && 
+  !CollectionReflectionType<T>;
 
 template<typename T>
 concept ReflectionType = PrimitiveReflectionType<T> || StructReflectionType<T> || CollectionReflectionType<T>;
@@ -108,6 +113,16 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
 #pragma section("reflection$e", read) // Primitive reflection data section
 #pragma section("reflection$h", read) // Collection reflection data section
 
+#if defined(__clang__)
+  #define __REFLECTION_SECTION(name) \
+          __declspec(allocate(name)) __attribute__((used))
+#elif defined(_MSC_VER)
+  #define __REFLECTION_SECTION(name) \
+          __declspec(allocate(name))
+#else
+#error Unsupported compiler
+#endif
+
 // Reflection types declaration macros
 
 #define DECLARE_STRUCT_TYPE(...) \
@@ -138,14 +153,16 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
       static constexpr StructMember g_members[] = { \
           FOR_EACH(IMPLEMENT_STRUCT_MEMBER, REMOVE_PARENS(MEMBERS)) \
       };  \
-      __declspec(allocate("reflection$b")) \
+      __REFLECTION_SECTION("reflection$b") \
       constexpr TypeDesc_Struct g_type = { \
           GetTypeName<REMOVE_PARENS(T)>(),  \
           sizeof(__Type),  \
           g_members,  \
           static_cast<unsigned int>(sizeof(g_members) / sizeof(StructMember)), \
           g_bases[0],  \
-          static_cast<unsigned int>((sizeof(g_bases) / sizeof(TypeDesc_Struct*)) - 1)  \
+          static_cast<unsigned int>((sizeof(g_bases) / sizeof(TypeDesc_Struct*)) - 1),  \
+          Traits<__Type>::defaultConstructor,  \
+          Traits<__Type>::destructor  \
       };  \
     } \
     template<>  \
@@ -160,7 +177,7 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
 
 #define _IMPLEMENT_PRIMITIVE_TYPE_IMPL(T, ID) \
     static_assert(PrimitiveReflectionType<T>, "Type must be a primitive type.");  \
-    __declspec(allocate("reflection$e"))  \
+    __REFLECTION_SECTION("reflection$e")  \
     constexpr TypeDesc_Primitive CAT(g_type_, ID) = {  \
         GetTypeName<T>(),  \
         sizeof(T)  \
@@ -179,25 +196,20 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
     static_assert(CollectionReflectionType<REMOVE_PARENS(T)>, "Type must be a collection type.");  \
     namespace CAT(Refl_NS_, ID) { \
       using __Type = REMOVE_PARENS(T); \
-      __declspec(allocate("reflection$h"))  \
-      constexpr TypeDesc_Collection g_type = {  \
-          GetTypeName<REMOVE_PARENS(T)>(),  \
-          sizeof(__Type),  \
-          GetTypeDesc<typename CollectionTraits<__Type>::Element>(),  \
-          CollectionTraits<__Type>::isResizable,  \
-          [](void* obj, size_t size) -> void {  \
-            CollectionTraits<__Type>::Resize(static_cast<std::add_pointer_t<__Type>>(obj), size); \
-          },  \
-          [](const void* obj) -> size_t { \
-            return CollectionTraits<__Type>::GetSize(static_cast<std::add_pointer_t<std::add_const_t<__Type>>>(obj)); \
-          },  \
-          [](const void* obj, int index) -> const void* { \
-            return static_cast<const void*>(CollectionTraits<__Type>::GetElement(static_cast<std::add_pointer_t<std::add_const_t<__Type>>>(obj), index)); \
-          },  \
-          [](void* obj, int index, const void* elem) -> void { \
-            CollectionTraits<__Type>::SetElement(static_cast<std::add_pointer_t<__Type>>(obj), index, static_cast<CollectionTraits<__Type>::ElementConstPtr>(elem)); \
-          } \
-      };  \
+      __REFLECTION_SECTION("reflection$h")  \
+       constexpr TypeDesc_Collection g_type = []() constexpr { \
+          TypeDesc_Collection type{}; \
+          type.name = GetTypeName<REMOVE_PARENS(T)>(); \
+          type.size = sizeof(__Type); \
+          type.elementType = GetTypeDesc<typename CollectionTraits<__Type>::Element>(); \
+          type.resize = CollectionTraits<__Type>::resize; \
+          type.getSize = CollectionTraits<__Type>::GetSize; \
+          type.getElement = CollectionTraits<__Type>::GetElement; \
+          type.setElement = CollectionTraits<__Type>::SetElement; \
+          type.construct = Traits<__Type>::defaultConstructor; \
+          type.destruct = Traits<__Type>::destructor; \
+          return type; \
+      }(); \
     } \
     template<>  \
     constexpr const TypeDesc_Collection* GetTypeDesc<REMOVE_PARENS(T)>() {  \
@@ -208,6 +220,8 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
     _IMPLEMENT_COLLECTION_TYPE_IMPL(T, __COUNTER__)
 
 // Type registry for looking up type descriptors by name
+
+static_assert(offsetof(TypeDesc_Collection, name) == 0);
 
 inline std::unordered_map<std::string_view, const TypeDesc_Base*>& GetTypeRegistry()
 {
@@ -226,7 +240,7 @@ inline std::unordered_map<std::string_view, const TypeDesc_Base*>& GetTypeRegist
       const TypeDesc_Collection* collectionTypesEnd = &CollectionReflectionEnd;
       for (const TypeDesc_Collection* typeDesc = collectionTypesStart + 1; typeDesc != collectionTypesEnd; ++typeDesc)
       {
-        registry.insert({ typeDesc->name, typeDesc });
+         registry.insert({ typeDesc->name, typeDesc });
       }
 
       const TypeDesc_Primitive* primitiveTypesStart = &PrimitiveReflectionStart;

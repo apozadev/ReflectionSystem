@@ -14,4 +14,6 @@ IMPLEMENT_STRUCT_TYPE((MyBase), (), (x))
 
 IMPLEMENT_STRUCT_TYPE((MyStruct), (MyBase), (a, b, c))
 
+IMPLEMENT_COLLECTION_TYPE((std::vector<MyStruct>))
+
 IMPLEMENT_STRUCT_TYPE((MyNamespace::MyTemplateStruct<MyStruct>), (), (a, b))

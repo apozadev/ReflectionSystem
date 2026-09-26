@@ -11,17 +11,24 @@ This codebase provides a minimal reflection framework that:
 - registers reflection metadata for collection-like types
 - exposes a type registry that can be queried by name
 
+It has some serious limitations:
+
+- Only public class members can be registered (in order to keep it non-intrusive)
+- Incremental linking must be disabled
+- All registered types must be default-constructible
+
 The sample application prints the registered type names and demonstrates how the reflection metadata is exposed.
 
 ## Project structure
 
-- App.cpp: entry point that prints registered type names.
-- Reflection.h: core reflection definitions, type concepts, and macro helpers.
+- Reflection.h: core reflection definitions, type concepts, and macros.
 - Reflection.cpp: defines the sentinel objects that delimit the registered reflection sections.
-- MyStruct.h / MyStruct.cpp: example types and reflection declarations/implementations.
 - CollectionTraits.h: traits used to describe collection behavior.
-- MacroUtils.h / ReflectionMacrosDecl.h / TypeName.h: supporting helpers and type-name utilities.
-- ReflectionSystem.vcxproj: Visual Studio C++ project file.
+- TypeName.h: Utility to get type name strings built at compile time.
+- MacroUtils.h: Supporting macro helpers.
+- CRC.h: Generate CRC from strings at compile time. Currently unused.
+- App.cpp: Example app. Entry point that prints registered type names.
+- MyStruct.h / MyStruct.cpp: example types and reflection declarations/implementations.
 
 ## Build and run
 

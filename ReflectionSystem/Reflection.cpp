@@ -7,20 +7,20 @@
 #pragma section("reflection$g", read) // Collection: start
 #pragma section("reflection$j", read) // Collection: end
 
-__declspec(allocate("reflection$a"))
+__REFLECTION_SECTION("reflection$a")
 const TypeDesc_Struct StructReflectionStart = {};
 
-__declspec(allocate("reflection$c"))
+__REFLECTION_SECTION("reflection$c")
 const TypeDesc_Struct StructReflectionEnd = {};
 
-__declspec(allocate("reflection$d"))
+__REFLECTION_SECTION("reflection$d")
 const TypeDesc_Primitive PrimitiveReflectionStart = {};
 
-__declspec(allocate("reflection$f"))
+__REFLECTION_SECTION("reflection$f")
 const TypeDesc_Primitive PrimitiveReflectionEnd = {};
 
-__declspec(allocate("reflection$g"))
+__REFLECTION_SECTION("reflection$g")
 const TypeDesc_Collection CollectionReflectionStart = {};
 
-__declspec(allocate("reflection$j"))
+__REFLECTION_SECTION("reflection$j")
 const TypeDesc_Collection CollectionReflectionEnd = {};

@@ -28,10 +28,10 @@
     <ClInclude Include="Reflection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ReflectionMacrosDecl.h">
+    <ClInclude Include="TypeName.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TypeName.h">
+    <ClInclude Include="Traits.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

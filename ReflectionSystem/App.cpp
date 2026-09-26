@@ -1,31 +1,43 @@
 #include "Reflection.h"
-
+#include "MyStruct.h"
 #include <array>
-
 #include <cstdio>
 
-int main()
-{
+// TODO: static assert for base types. Check they are (not the same as __Type) and (not derived) to avoid infinite loop at compile-time
+// TODO: WFT muy grande. initializer list de collection con los miembros off by one
 
+int main()
+{  
+
+  // Iterate through all registered types and print their names
   for (auto entry : GetTypeRegistry())
   {
     printf("%s\n", entry.first.data());
   }
-  const TypeDesc_Collection* arrayType = static_cast<const TypeDesc_Collection*>(GetTypeDescByName("std::array<int,10>"));
 
+  // Retrieve the type descriptor for std::vector<MyStruct> from the type registry
+  const TypeDesc_Collection* arrayType = static_cast<const TypeDesc_Collection*>(GetTypeDescByName("std::vector<struct MyStruct,class std::allocator<struct MyStruct> >"));
+
+  // Allocate memory for a vector object
   void* obj = malloc(arrayType->size);
 
+  // Construct the vector object
+  arrayType->construct(obj);
+
+  // Populate the vector with integer elements
   for (int i = 0; i < arrayType->getSize(obj); i++)
   {
     arrayType->setElement(obj, i, &i);
   }
 
+  // Retrieve and print each element from the vector
   for(int i = 0; i < arrayType->getSize(obj); i++)
   {
     printf("%d\n", *static_cast<const int*>(arrayType->getElement(obj, i)));
   }
 
-  if (arrayType->isResizable)
+  // Resize the vector if it supports dynamic resizing
+  if (arrayType->resize)
   {
     arrayType->resize(obj, 5);
   }
