@@ -98,31 +98,6 @@ template<typename T>
   requires CollectionReflectionType<T>
 constexpr const TypeDesc_Collection* GetTypeDesc() { static_assert(always_false<T>, "Collection type not in reflection."); return nullptr; }
 
-// Reflection data section boundaries
-
-extern const TypeDesc_Struct StructReflectionStart;
-extern const TypeDesc_Struct StructReflectionEnd;
-
-extern const TypeDesc_Primitive PrimitiveReflectionStart;
-extern const TypeDesc_Primitive PrimitiveReflectionEnd;
-
-extern const TypeDesc_Collection CollectionReflectionStart;
-extern const TypeDesc_Collection CollectionReflectionEnd;
-
-#pragma section("reflection$b", read) // Struct reflection data section
-#pragma section("reflection$e", read) // Primitive reflection data section
-#pragma section("reflection$h", read) // Collection reflection data section
-
-#if defined(__clang__)
-  #define __REFLECTION_SECTION(name) \
-          __declspec(allocate(name)) __attribute__((used))
-#elif defined(_MSC_VER)
-  #define __REFLECTION_SECTION(name) \
-          __declspec(allocate(name))
-#else
-#error Unsupported compiler
-#endif
-
 // Reflection types declaration macros
 
 #define DECLARE_STRUCT_TYPE(...) \
@@ -153,7 +128,6 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
       static constexpr StructMember g_members[] = { \
           FOR_EACH(IMPLEMENT_STRUCT_MEMBER, REMOVE_PARENS(MEMBERS)) \
       };  \
-      __REFLECTION_SECTION("reflection$b") \
       constexpr TypeDesc_Struct g_type = { \
           GetTypeName<REMOVE_PARENS(T)>(),  \
           sizeof(__Type),  \
@@ -164,11 +138,12 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
           Traits<__Type>::defaultConstructor,  \
           Traits<__Type>::destructor  \
       };  \
+      static Registrar s_typeRegistrar(&g_type);  \
     } \
     template<>  \
     constexpr const TypeDesc_Struct* GetTypeDesc<REMOVE_PARENS(T)>() {  \
         return &CAT(Refl_NS_, ID)::g_type;  \
-    }
+    }    
 
 #define IMPLEMENT_STRUCT_TYPE(T, BASES, MEMBERS) \
     __IMPLEMENT_STRUCT_TYPE_IMPL(T, __COUNTER__, BASES, MEMBERS)
@@ -177,11 +152,11 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
 
 #define _IMPLEMENT_PRIMITIVE_TYPE_IMPL(T, ID) \
     static_assert(PrimitiveReflectionType<T>, "Type must be a primitive type.");  \
-    __REFLECTION_SECTION("reflection$e")  \
     constexpr TypeDesc_Primitive CAT(g_type_, ID) = {  \
         GetTypeName<T>(),  \
         sizeof(T)  \
     };  \
+    static Registrar CAT(s_typeRegistrar, ID)(&CAT(g_type_, ID));  \
     template<>  \
     constexpr const TypeDesc_Primitive* GetTypeDesc<T>() {  \
         return &CAT(g_type_, ID);  \
@@ -196,20 +171,20 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
     static_assert(CollectionReflectionType<REMOVE_PARENS(T)>, "Type must be a collection type.");  \
     namespace CAT(Refl_NS_, ID) { \
       using __Type = REMOVE_PARENS(T); \
-      __REFLECTION_SECTION("reflection$h")  \
-       constexpr TypeDesc_Collection g_type = []() constexpr { \
-          TypeDesc_Collection type{}; \
-          type.name = GetTypeName<REMOVE_PARENS(T)>(); \
-          type.size = sizeof(__Type); \
-          type.elementType = GetTypeDesc<typename CollectionTraits<__Type>::Element>(); \
-          type.resize = CollectionTraits<__Type>::resize; \
-          type.getSize = CollectionTraits<__Type>::GetSize; \
-          type.getElement = CollectionTraits<__Type>::GetElement; \
-          type.setElement = CollectionTraits<__Type>::SetElement; \
-          type.construct = Traits<__Type>::defaultConstructor; \
-          type.destruct = Traits<__Type>::destructor; \
-          return type; \
+      constexpr TypeDesc_Collection g_type = []() constexpr { \
+        TypeDesc_Collection type{}; \
+        type.name = GetTypeName<REMOVE_PARENS(T)>(); \
+        type.size = sizeof(__Type); \
+        type.elementType = GetTypeDesc<typename CollectionTraits<__Type>::Element>(); \
+        type.resize = CollectionTraits<__Type>::resize; \
+        type.getSize = CollectionTraits<__Type>::GetSize; \
+        type.getElement = CollectionTraits<__Type>::GetElement; \
+        type.setElement = CollectionTraits<__Type>::SetElement; \
+        type.construct = Traits<__Type>::defaultConstructor; \
+        type.destruct = Traits<__Type>::destructor; \
+        return type; \
       }(); \
+      static Registrar s_typeRegistrar(&g_type);  \
     } \
     template<>  \
     constexpr const TypeDesc_Collection* GetTypeDesc<REMOVE_PARENS(T)>() {  \
@@ -221,48 +196,42 @@ extern const TypeDesc_Collection CollectionReflectionEnd;
 
 // Type registry for looking up type descriptors by name
 
-static_assert(offsetof(TypeDesc_Collection, name) == 0);
+struct Registrar;
 
-inline std::unordered_map<std::string_view, const TypeDesc_Base*>& GetTypeRegistry()
+struct TypeRegistry
 {
-  static std::unordered_map<std::string_view, const TypeDesc_Base*> typeRegistry = []()
-    {
-      std::unordered_map<std::string_view, const TypeDesc_Base*> registry;
-
-      const TypeDesc_Struct* structTypesStart = &StructReflectionStart;
-      const TypeDesc_Struct* structTypesEnd = &StructReflectionEnd;
-      for (const TypeDesc_Struct* typeDesc = structTypesStart + 1; typeDesc != structTypesEnd; ++typeDesc)
-      {
-        registry.insert({ typeDesc->name, typeDesc });
-      }
-
-      const TypeDesc_Collection* collectionTypesStart = &CollectionReflectionStart;
-      const TypeDesc_Collection* collectionTypesEnd = &CollectionReflectionEnd;
-      for (const TypeDesc_Collection* typeDesc = collectionTypesStart + 1; typeDesc != collectionTypesEnd; ++typeDesc)
-      {
-         registry.insert({ typeDesc->name, typeDesc });
-      }
-
-      const TypeDesc_Primitive* primitiveTypesStart = &PrimitiveReflectionStart;
-      const TypeDesc_Primitive* primitiveTypesEnd = &PrimitiveReflectionEnd;
-      for (const TypeDesc_Primitive* typeDesc = primitiveTypesStart + 1; typeDesc != primitiveTypesEnd; ++typeDesc)
-      {
-        registry.insert({ typeDesc->name, typeDesc });
-      }
-
-      return registry;
-    }();
-
-  return typeRegistry;
-}
-
-inline const TypeDesc_Base* GetTypeDescByName(std::string_view typeName)
-{
-  const auto& registry = GetTypeRegistry();
-  auto it = registry.find(typeName);
-  if (it != registry.end())
+  static TypeRegistry& Get()
   {
-    return it->second;
+    static TypeRegistry s_registry{};
+    return s_registry;
+  }  
+
+  const std::unordered_map<std::string_view, const TypeDesc_Base*>& GetTypes() const
+  {
+    return m_types;
   }
-  return nullptr;
-}
+
+  const TypeDesc_Base* GetTypeDescByName(const char* _sName)
+  {
+    auto it = m_types.find(_sName);
+    if (it != m_types.end())
+    {
+      return it->second;
+    }
+    return nullptr;
+  }
+
+private:
+
+  friend struct Registrar;
+
+  std::unordered_map<std::string_view, const TypeDesc_Base*> m_types;
+};
+
+struct Registrar
+{
+  Registrar(const TypeDesc_Base* _pTypeDesc)
+  {
+    TypeRegistry::Get().m_types.insert({ _pTypeDesc->name, _pTypeDesc });
+  }
+};

@@ -4,19 +4,18 @@
 #include <cstdio>
 
 // TODO: static assert for base types. Check they are (not the same as __Type) and (not derived) to avoid infinite loop at compile-time
-// TODO: WFT muy grande. initializer list de collection con los miembros off by one
 
 int main()
 {  
 
   // Iterate through all registered types and print their names
-  for (auto entry : GetTypeRegistry())
+  for (auto entry : TypeRegistry::Get().GetTypes())
   {
     printf("%s\n", entry.first.data());
   }
 
   // Retrieve the type descriptor for std::vector<MyStruct> from the type registry
-  const TypeDesc_Collection* arrayType = static_cast<const TypeDesc_Collection*>(GetTypeDescByName("std::vector<struct MyStruct,class std::allocator<struct MyStruct> >"));
+  const TypeDesc_Collection* arrayType = static_cast<const TypeDesc_Collection*>(TypeRegistry::Get().GetTypeDescByName("std::vector<struct MyStruct,class std::allocator<struct MyStruct> >"));
 
   // Allocate memory for a vector object
   void* obj = malloc(arrayType->size);
